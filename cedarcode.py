@@ -1,14 +1,15 @@
 import cv2
 import numpy as np
 import os
+import matplotlib.pyplot as plt
 
-def extract_signature(image_path, min_contour_area=500, padding=15):
+def extract_signature(image_path, min_contour_area=50, padding=15):
     img = cv2.imread(image_path)
     if img is None:
         print(f"Error: Could not load image from {image_path}")
         return None
 
-    # Show original image
+    h_img, w_img = img.shape[:2]
     cv2.imshow("Original", img)
     cv2.waitKey(0)
 
@@ -16,31 +17,48 @@ def extract_signature(image_path, min_contour_area=500, padding=15):
     cv2.imshow("Grayscale", gray)
     cv2.waitKey(0)
 
-    thresh = cv2.adaptiveThreshold(
-        gray, 255, cv2.ADAPTIVE_THRESH_GAUSSIAN_C,
-        cv2.THRESH_BINARY_INV, 11, 2
-    )
-    cv2.imshow("Thresholded", thresh)
+    # Histogram debug (optional, comment out later)
+    plt.hist(gray.ravel(), 256, [0, 256])
+    plt.title("Grayscale Histogram")
+    plt.show()
+
+    # Otsu Thresholding
+    _, thresh = cv2.threshold(gray, 0, 255, cv2.THRESH_BINARY_INV + cv2.THRESH_OTSU)
+    cv2.imshow("Thresholded (Otsu)", thresh)
     cv2.waitKey(0)
 
+    # Morphological cleaning
     kernel = np.ones((5, 5), np.uint8)
     cleaned = cv2.morphologyEx(thresh, cv2.MORPH_CLOSE, kernel, iterations=2)
     cleaned = cv2.morphologyEx(cleaned, cv2.MORPH_OPEN, kernel, iterations=1)
-    cv2.imshow("Cleaned (Morphology)", cleaned)
+    cv2.imshow("Cleaned", cleaned)
     cv2.waitKey(0)
 
+    # Contours
     contours, _ = cv2.findContours(cleaned, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
-    if not contours:
-        print("No contours found.")
-        cv2.destroyAllWindows()
-        return None
+    img_area = h_img * w_img
 
-    valid_contours = [cnt for cnt in contours if cv2.contourArea(cnt) > min_contour_area]
+    valid_contours = []
+    for cnt in contours:
+        area = cv2.contourArea(cnt)
+        if 50 < area < 0.98 * img_area:  # reject near-full-image blobs
+            valid_contours.append(cnt)
+
+
+    print(f"Valid contours (area > {min_contour_area}): {len(valid_contours)}")
+
+    # Draw all contours (for debugging)
+    debug_contours = img.copy()
+    cv2.drawContours(debug_contours, contours, -1, (255, 0, 0), 1)
+    cv2.imshow("All Contours", debug_contours)
+    cv2.waitKey(0)
+
     if not valid_contours:
-        print("No valid contours found.")
+        print("No valid contours found after area filtering.")
         cv2.destroyAllWindows()
         return None
 
+    # Find bounding box
     x_min = y_min = float('inf')
     x_max = y_max = 0
     for cnt in valid_contours:
@@ -52,14 +70,31 @@ def extract_signature(image_path, min_contour_area=500, padding=15):
 
     x_min = max(x_min - padding, 0)
     y_min = max(y_min - padding, 0)
-    x_max = min(x_max + padding, img.shape[1])
-    y_max = min(y_max + padding, img.shape[0])
+    x_max = min(x_max + padding, w_img)
+    y_max = min(y_max + padding, h_img)
+
+    bbox_w, bbox_h = x_max - x_min, y_max - y_min
+
+    print(f"Bounding box: x={x_min}, y={y_min}, w={bbox_w}, h={bbox_h}")
+    print(f"Original size: {w_img}x{h_img}")
+
+    if bbox_w == w_img and bbox_h == h_img:
+        print("Extracted region is exactly the original image — skipping.")
+        cv2.destroyAllWindows()
+        return None
+
+    # Optional: Draw bounding box
+    boxed_img = img.copy()
+    cv2.rectangle(boxed_img, (x_min, y_min), (x_max, y_max), (0, 255, 0), 2)
+    cv2.imshow("Bounding Box", boxed_img)
+    cv2.waitKey(0)
 
     signature = img[y_min:y_max, x_min:x_max]
     cv2.imshow("Extracted Signature", signature)
     cv2.waitKey(0)
     cv2.destroyAllWindows()
     return signature
+
 
 def main():
     input_folder = os.path.join('CEDAR', 'practice')
@@ -80,7 +115,7 @@ def main():
                 cv2.imwrite(out_path, signature)
                 print(f"Extracted signature saved to {out_path}")
             else:
-                print(f"No signature found in {filename}")
+                print(f"No valid signature extracted from {filename}")
 
 if __name__ == "__main__":
     main()
