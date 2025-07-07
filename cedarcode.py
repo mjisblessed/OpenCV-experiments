@@ -78,9 +78,9 @@ def main():
             if signature is not None:
                 out_path = os.path.join(output_folder, filename)
                 cv2.imwrite(out_path, signature)
-                print(f"✅ Extracted signature saved to {out_path}")
+                print(f"Extracted signature saved to {out_path}")
             else:
-                print(f"❌ No signature found in {filename}")
+                print(f"No signature found in {filename}")
 
 if __name__ == "__main__":
     main()
